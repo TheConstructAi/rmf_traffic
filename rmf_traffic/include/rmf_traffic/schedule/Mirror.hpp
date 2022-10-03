@@ -58,7 +58,7 @@ public:
     std::size_t participant_id) const final;
 
   // Documentation inherited from Viewer
-  std::optional<Version> latest_version() const;
+  Version latest_version() const final;
 
 
   //============================================================================
@@ -105,11 +105,6 @@ public:
   /// \return true if this update is okay. false if the base version of the
   /// patch does not match
   bool update(const Patch& patch);
-
-  /// Tell this mirror that the upstream database is reseting its version
-  /// number. The next patch that this mirror receives will need to provide a
-  /// full update.
-  void reset();
 
   /// Fork a new database off of this Mirror. The state of the new database
   /// will match the last state of the upstream database that this Mirror knows

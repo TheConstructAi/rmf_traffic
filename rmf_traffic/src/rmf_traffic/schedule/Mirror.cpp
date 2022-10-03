@@ -69,7 +69,7 @@ public:
 
   std::unordered_set<ParticipantId> participant_ids;
 
-  std::optional<Version> latest_version = std::nullopt;
+  Version latest_version = 0;
 
   mutable DependencyTracker dependencies;
 
@@ -265,7 +265,7 @@ std::shared_ptr<const ParticipantDescription> Mirror::get_participant(
 }
 
 //==============================================================================
-std::optional<Version> Mirror::latest_version() const
+Version Mirror::latest_version() const
 {
   return _pimpl->latest_version;
 }
@@ -386,7 +386,8 @@ std::shared_ptr<const Snapshot> Mirror::snapshot() const
   return std::make_shared<SnapshotType>(
     _pimpl->timeline.snapshot(nullptr),
     _pimpl->participant_ids,
-    _pimpl->descriptions);
+    _pimpl->descriptions,
+    _pimpl->latest_version);
 }
 
 //==============================================================================
@@ -580,19 +581,6 @@ bool Mirror::update(const Patch& patch)
 }
 
 //==============================================================================
-void Mirror::reset()
-{
-  _pimpl->latest_version = std::nullopt;
-  for (auto& [id, state] : _pimpl->states)
-  {
-    state.storage.clear();
-    state.highest_storage = std::nullopt;
-    state.current_plan_id = std::numeric_limits<PlanId>::max();
-    state.itinerary_version = 0;
-  }
-}
-
-//==============================================================================
 Database Mirror::fork() const
 {
   Database output;
@@ -638,7 +626,7 @@ Database Mirror::fork() const
         state.progress.version);
     }
 
-    set_initial_fork_version(output, _pimpl->latest_version.value_or(0));
+    set_initial_fork_version(output, _pimpl->latest_version);
   }
   catch (const std::exception& e)
   {

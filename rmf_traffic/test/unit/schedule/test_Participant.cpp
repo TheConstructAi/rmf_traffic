@@ -246,9 +246,35 @@ SCENARIO("Test Participant")
     CHECK_ITINERARY(p1, *db);
   }
 
+  GIVEN("Changes: X")
+  {
+    p1.extend({Route{"test_map", t1}});
+    CHECK(p1.itinerary().size() == 1);
+    CHECK(db->latest_version() == ++dbv);
+    CHECK_ITINERARY(p1, *db);
+  }
+
+  GIVEN("Changes: SX")
+  {
+    p1.set(p1.plan_id_assigner()->assign(), {Route{"test_map", t1}});
+    REQUIRE(p1.itinerary().size() == 1);
+    CHECK(db->latest_version() == ++dbv);
+    CHECK_ITINERARY(p1, *db);
+
+    // Extend itinerary with two new routes
+    std::vector<Route> additional_routes;
+    additional_routes.emplace_back(Route{"test_map", t2});
+    additional_routes.emplace_back(Route{"test_map_2", t1});
+
+    p1.extend(additional_routes);
+    CHECK(p1.itinerary().size() == 3);
+    CHECK(db->latest_version() == ++dbv);
+    CHECK_ITINERARY(p1, *db);
+  }
+
   GIVEN("Changes: D")
   {
-    p1.cumulative_delay(p1.current_plan_id(), 5s);
+    p1.delay(5s);
     CHECK(p1.itinerary().size() == 0);
     CHECK(p1.current_plan_id() ==
       std::numeric_limits<rmf_traffic::PlanId>::max());
@@ -268,7 +294,7 @@ SCENARIO("Test Participant")
     const auto old_itinerary = p1.itinerary();
 
     const auto delay_duration = 5s;
-    p1.cumulative_delay(p1.current_plan_id(), delay_duration);
+    p1.delay(delay_duration);
     REQUIRE(p1.itinerary().size() == 1);
 
     auto old_it = old_itinerary.front().trajectory().begin();
@@ -361,7 +387,7 @@ SCENARIO("Test Participant")
 
     writer->drop_packets = false;
 
-    p1.cumulative_delay(p1.current_plan_id(), 10s);
+    p1.delay(10s);
     CHECK(db->latest_version() == dbv);
     REQUIRE(db->inconsistencies().size() == 1);
     CHECK(db->inconsistencies().begin()->ranges.size() == 1);
@@ -370,13 +396,7 @@ SCENARIO("Test Participant")
 
     writer->drop_packets = true;
 
-    p1.cumulative_delay(p1.current_plan_id(), 10s);
-    CHECK(db->latest_version() == dbv);
-    // No change because the new cumulative delay is equal to the previous one
-    CHECK(db->inconsistencies().begin()->ranges.last_known_version() ==
-      rmf_traffic::schedule::Participant::Debug::get_itinerary_version(p1));
-
-    p1.cumulative_delay(p1.current_plan_id(), 9s);
+    p1.delay(10s);
     CHECK(db->latest_version() == dbv);
     CHECK(db->inconsistencies().begin()->ranges.last_known_version() + 1 ==
       rmf_traffic::schedule::Participant::Debug::get_itinerary_version(p1));
@@ -648,7 +668,33 @@ SCENARIO("Test Participant")
     CHECK_FALSE(watch_4_3_2.deprecated());
   }
 
-  GIVEN("Changes: SdD")
+  GIVEN("Changes: sX")
+  {
+    writer->drop_packets = true;
+
+    // Set the itinerary
+    p1.set(
+      p1.plan_id_assigner()->assign(),
+      {Route{"test_map", t1}, Route{"test_map", t2}});
+    CHECK(db->latest_version() == dbv);
+
+    writer->drop_packets = false;
+
+    // Extend the itinerary
+    p1.extend({Route{"test_map_2", t2}});
+    REQUIRE(db->get_itinerary(p1.id()));
+    CHECK(db->get_itinerary(p1.id())->size() == 0);
+    CHECK(db->inconsistencies().begin()->participant == p1.id());
+    CHECK(db->inconsistencies().begin()->ranges.size() != 0);
+
+    // Fix inconsistencies
+    rectifier->rectify();
+    CHECK(db->latest_version() == ++(++dbv));
+    CHECK_ITINERARY(p1, *db);
+    CHECK(db->inconsistencies().begin()->ranges.size() == 0);
+  }
+
+  GIVEN("Changes: SxX")
   {
     p1.set(
       p1.plan_id_assigner()->assign(),
@@ -660,14 +706,14 @@ SCENARIO("Test Participant")
     // Tell the writer to start dropping packets
     writer->drop_packets = true;
 
-    p1.cumulative_delay(p1.current_plan_id(), 5s);
+    p1.extend({Route{"test_map_2", t1}});
 
     // Check that the database version did not change
     CHECK(db->latest_version() == dbv);
 
     writer->drop_packets = false;
 
-    p1.cumulative_delay(p1.current_plan_id(), 7s);
+    p1.extend({Route{"test_map_3", t1}});
 
     // Check that the database version still did not change
     CHECK(db->latest_version() == dbv);
@@ -683,13 +729,13 @@ SCENARIO("Test Participant")
     // Now the database should have updated with both changes
     CHECK(db->latest_version() == ++(++dbv));
     REQUIRE(db->get_itinerary(p1.id()));
-    CHECK(db->get_itinerary(p1.id())->size() == 1);
+    CHECK(db->get_itinerary(p1.id())->size() == 3);
     const auto itinerary = db->get_itinerary(p1.id());
     CHECK_ITINERARY(p1, *db);
     CHECK(db->inconsistencies().begin()->ranges.size() == 0);
   }
 
-  GIVEN("Changes: sdddD")
+  GIVEN("Changes: sddxX")
   {
     writer->drop_packets = true;
 
@@ -701,22 +747,22 @@ SCENARIO("Test Participant")
     CHECK(db->get_itinerary(p1.id())->empty());
 
     // Add a delay to the itinerary
-    p1.cumulative_delay(p1.current_plan_id(), 1s);
+    p1.delay(1s);
     CHECK(p1.itinerary().size() == 1);
     CHECK(db->latest_version() == dbv);
     REQUIRE(db->get_itinerary(p1.id()));
     CHECK(db->get_itinerary(p1.id())->empty());
 
     // Add a second delay to the itinerary
-    p1.cumulative_delay(p1.current_plan_id(), 2s);
+    p1.delay(1s);
     CHECK(p1.itinerary().size() == 1);
     CHECK(db->latest_version() == dbv);
     REQUIRE(db->get_itinerary(p1.id()));
     CHECK(db->get_itinerary(p1.id())->empty());
 
     // Extend the itinerary
-    p1.cumulative_delay(p1.current_plan_id(), -3s);
-    CHECK(p1.itinerary().size() == 1);
+    p1.extend({Route{"test_map", t2}, Route{"test_map", t3}});
+    CHECK(p1.itinerary().size() == 3);
     CHECK(db->latest_version() == dbv);
     REQUIRE(db->get_itinerary(p1.id()));
     CHECK(db->get_itinerary(p1.id())->empty());
@@ -724,8 +770,8 @@ SCENARIO("Test Participant")
     writer->drop_packets = false;
 
     // Extend the itinerary
-    p1.cumulative_delay(p1.current_plan_id(), -5s);
-    CHECK(p1.itinerary().size() == 1);
+    p1.extend({Route{"test_map_2", t3}});
+    CHECK(p1.itinerary().size() == 4);
     CHECK(db->latest_version() == dbv);
     REQUIRE(db->get_itinerary(p1.id()));
     CHECK(db->get_itinerary(p1.id())->empty());
@@ -747,7 +793,7 @@ SCENARIO("Test Participant")
     CHECK(db->inconsistencies().begin()->ranges.size() == 0);
   }
 
-  GIVEN("Changes: SdDdD")
+  GIVEN("Changes: SdDxX")
   {
     // Set the participant itinerary
     p1.set(p1.plan_id_assigner()->assign(), {Route{"test_map", t1}});
@@ -758,13 +804,13 @@ SCENARIO("Test Participant")
     writer->drop_packets = true;
 
     // Add a delay
-    p1.cumulative_delay(p1.current_plan_id(), 1s);
+    p1.delay(1s);
     CHECK(db->latest_version() == dbv);
 
     writer->drop_packets = false;
 
     // Add a delay
-    p1.cumulative_delay(p1.current_plan_id(), -1s);
+    p1.delay(1s);
     CHECK(db->latest_version() == dbv);
     REQUIRE(db->inconsistencies().size() > 0);
     auto inconsistency = db->inconsistencies().begin();
@@ -777,14 +823,14 @@ SCENARIO("Test Participant")
     writer->drop_packets = true;
 
     // Extend the itinerary
-    p1.cumulative_delay(p1.current_plan_id(), -5s);
-    CHECK(p1.itinerary().size() == 1);
+    p1.extend({Route{"test_map", t2}});
+    CHECK(p1.itinerary().size() == 2);
     CHECK(db->latest_version() == dbv);
 
     writer->drop_packets = false;
 
     // Extend the itinerary
-    p1.cumulative_delay(p1.current_plan_id(), 0s);
+    p1.extend({Route{"test_map", t3}});
     REQUIRE(db->inconsistencies().size() > 0);
     CHECK(db->inconsistencies().begin()->participant == p1.id());
     inconsistency = db->inconsistencies().begin();
@@ -807,7 +853,7 @@ SCENARIO("Test Participant")
     CHECK(db->inconsistencies().begin()->ranges.size() == 0);
   }
 
-  GIVEN("Changes: Sc")
+  GIVEN("Changes: ScX")
   {
     // Set the participant itinerary
     p1.set(p1.plan_id_assigner()->assign(), {Route{"test_map", t1}});
@@ -826,9 +872,23 @@ SCENARIO("Test Participant")
 
     writer->drop_packets = false;
 
+    // Extend the itinerary
+    p1.extend({Route{"test_map", t2}, Route{"test_map", t3}});
+    REQUIRE(p1.itinerary().size() == 2);
+    CHECK(db->latest_version() == dbv);
+
+    // Check for inconsistencies
+    REQUIRE(db->inconsistencies().size() == 1);
+    auto inconsistency = db->inconsistencies().begin();
+    CHECK(inconsistency->participant == p1.id());
+    REQUIRE(inconsistency->ranges.size() > 0);
+    CHECK(inconsistency->ranges.last_known_version() == 2);
+    CHECK(inconsistency->ranges.begin()->lower == 1);
+    CHECK(inconsistency->ranges.begin()->upper == 1);
+
     // Fix inconsistency
     rectifier->rectify();
-    dbv += 1;
+    dbv += 2;
     CHECK(db->latest_version() == dbv);
     CHECK_ITINERARY(p1, *db);
     CHECK(db->inconsistencies().begin()->ranges.size() == 0);
@@ -836,6 +896,7 @@ SCENARIO("Test Participant")
 
   GIVEN("Participant unregisters")
   {
+
     rmf_traffic::schedule::ParticipantId p2_id;
 
     {

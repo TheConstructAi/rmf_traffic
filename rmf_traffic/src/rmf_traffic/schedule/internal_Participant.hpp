@@ -49,9 +49,7 @@ public:
 
     bool set(PlanId plan, std::vector<Route> itinerary);
 
-    bool cumulative_delay(PlanId plan, Duration delay, Duration tolerance);
-
-    std::optional<Duration> cumulative_delay(PlanId plan) const;
+    void extend(std::vector<Route> additional_routes);
 
     void delay(Duration delay);
 
@@ -68,8 +66,6 @@ public:
 
     ParticipantId get_id() const;
 
-    void change_profile(Profile new_profile);
-
     void correct_id(ParticipantId new_id);
 
     const ParticipantDescription& get_description() const;
@@ -83,7 +79,7 @@ public:
 
     ParticipantId _id;
     ItineraryVersion _version;
-    ParticipantDescription _description;
+    const ParticipantDescription _description;
     std::shared_ptr<Writer> _writer;
     std::unique_ptr<RectificationRequester> _rectification;
 
